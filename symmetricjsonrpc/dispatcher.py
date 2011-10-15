@@ -28,6 +28,7 @@ from __future__ import with_statement
 
 import select
 import threading
+import socket
 
 class Thread(threading.Thread):
     """This class is the base class for a set of threading.Thread
@@ -89,6 +90,7 @@ class Connection(Thread):
 
     _dispatcher_class = "Request"
 
+
     def run_thread(self):
         for value in self.read():
             if self.debug_dispatch: print "%s: DISPATCH: %s" % (self.getName(), value)
@@ -107,18 +109,20 @@ class ServerConnection(Connection):
 
     _dispatcher_class = "InboundConnection"
 
-    def read(self):
-        poll = select.poll()
-        poll.register(self.subject, select.POLLIN)
+    def _init(self, *arg, **kw):
+        Connection._init(self, *arg, **kw)
+        self.subject.settimeout(0.5)
 
+    def read(self):
         while True:
             if self._shutdown:
                 self.subject.close()
                 return
-            status = poll.poll(100)
-            if status:
-                socket, address = self.subject.accept()
-                yield socket
+            try:
+                sock, address = self.subject.accept()
+                yield sock
+            except socket.timeout:
+                pass
 
 class ThreadedClient(Thread):
     """A dispatch manager that can be used to wrap some other dispatch
