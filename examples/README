@@ -1,0 +1,11 @@
+openssl req -x509 -new -keyout server.key -out server.pem -nodes <<EOF
+NO
+Oslo
+Oslo
+Symmetricjsonrpc Inc
+Symmetricjsonrpc Dept
+localhost
+test@example.com
+EOF
+examples/server.py --ssl &
+examples/client.py --ssl &
