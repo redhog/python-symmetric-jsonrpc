@@ -28,6 +28,7 @@ import StringIO
 import unittest
 
 import wrappers
+import datetime
 
 def from_json(str):
     """Return a python object representing the json value in str."""
@@ -40,6 +41,56 @@ def to_json(obj):
     w = Writer(i, encoding='UTF-8')
     w.write_value(obj)
     return i.getvalue()
+
+class Object(object):
+    encoders = []
+    decoders = {}
+
+    @classmethod
+    def _encoder_cmp(cls, a, b):
+        if issubclass(a, b):
+            return -1
+        elif issubclass(b, a):
+            return 1
+        return 0
+
+    @classmethod
+    def register_encoder(cls, for_type, **kw):
+        def register_encoder(function):
+            encoder = {}
+            encoder.update(kw)
+            encoder['type'] = for_type
+            encoder['function'] = function
+            cls.encoders.append(encoder)
+            cls.encoders.sort(cls._encoder_cmp)
+            return function
+        return register_encoder
+
+    @classmethod
+    def register_decoder(cls, for__jsonclass__, **kw):
+        def register_decoder(function):
+            decoder = {}
+            decoder.update(kw)
+            decoder['__jsonclass__'] = for__jsonclass__
+            decoder['function'] = function
+            cls.decoders[for__jsonclass__] = decoder
+            return function
+        return register_decoder
+
+    @classmethod
+    def encode(cls, obj):
+        for encoder in cls.encoders:
+            if isinstance(obj, encoder['type']):
+                return encoder['function'](obj, encoder)
+        raise Exception("Cannot encode %s of type %s to json" % (obj, type(obj)))
+
+    @classmethod
+    def decode(cls, obj):
+        if cls.decoders and obj['__jsonclass__'][0] in cls.decoders:
+            json_cls = obj.pop('__jsonclass__')
+            decoder = cls.decoders[json_cls[0]]
+            return decoder['function'](json_cls[1:], obj, decoder)
+        return obj
 
 class Writer(object):
     """A serializer for python values to JSON. Allowed types for
@@ -127,7 +178,7 @@ class Writer(object):
                     self.unflushed_write_value(i)
                 self.s.write(']')
         else:
-            raise Exception("Cannot encode %s of type %s to json" % (value,type(value)))
+            self.unflushed_write_value(Object.encode(value))
 
     def unflushed_write_values(self, values):
         for value in values:
@@ -346,6 +397,8 @@ class Reader(Tokenizer):
             params = cls[1:]
             cls = self.object_initializer[cls[0]]
             self.state[-1] = cls(params, self.state[-1])
+        else:
+            self.state[-1] = Object.decode(self.state[-1])
     def array_begin(self): self._struct_begin()
     def array_end(self): self._struct_end()
     def string_begin(self): self.state.append(u"")
@@ -393,6 +446,16 @@ class DebugTokenizer(object):
     def fail(self, msg): super(DebugTokenizer, self).fail(); raise Exception(msg)
 
 class DebugReader(DebugTokenizer, Reader): pass
+
+@Object.register_encoder(datetime.datetime)
+def datetime__to_json__(self, encoder):
+    return {"__jsonclass__": ["Date", self.year, self.month, self.day, self.hour, self.minute, self.second, self.microsecond / 1000]}
+
+@Object.register_decoder("Date")
+def datetime__from_json__(params, obj, decoder):
+    year, month, day, hour, minute, second, millisecond = params
+    return datetime.datetime(year, month, day, hour, minute, second, millisecond * 1000)
+
 
 #### Test code ####
 
